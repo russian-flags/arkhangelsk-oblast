@@ -1,4 +1,4 @@
-import { settlements } from "../src/settlements.ts";
+import { loadFlagModule, preloadFlag, settlements } from "@russian-flags/arkhangelsk-oblast";
 
 function requiredNode(selector) {
   const node = document.querySelector(selector);
@@ -15,13 +15,31 @@ const flagModalTitle = requiredNode("#flagModalTitle");
 const flagModalImage = requiredNode("#flagModalImage");
 const flagModalClose = requiredNode(".flag-modal__close");
 const nameCollator = new Intl.Collator("ru");
+const flagSrcBySlug = new Map();
 
 function sortedSettlements() {
   return [...settlements].sort((left, right) => nameCollator.compare(left.nameRu, right.nameRu));
 }
 
-function assetUrl(settlement) {
-  return new URL(`../assets/${settlement.slug}/index.svg`, import.meta.url).href;
+async function flagUrl(settlement) {
+  const cached = flagSrcBySlug.get(settlement.slug);
+  if (cached) {
+    return cached;
+  }
+
+  const module = await loadFlagModule(settlement.slug);
+  flagSrcBySlug.set(settlement.slug, module.src);
+  return module.src;
+}
+
+async function setFlagImage(image, frame, settlement) {
+  try {
+    image.src = await flagUrl(settlement);
+  } catch (error) {
+    console.error(error);
+    frame.classList.add("load-error");
+    frame.replaceChildren("не загружается");
+  }
 }
 
 function makeCell(className, children) {
@@ -56,7 +74,6 @@ function makeFlagCell(settlement) {
   frame.dataset.kind = "flag";
 
   const image = document.createElement("img");
-  image.src = assetUrl(settlement);
   image.alt = `Флаг ${settlement.nameRu}`;
   image.loading = "lazy";
   image.decoding = "async";
@@ -67,7 +84,12 @@ function makeFlagCell(settlement) {
   }, { once: true });
 
   frame.append(image);
-  frame.addEventListener("click", () => openFlagModal(settlement));
+  frame.addEventListener("pointerenter", () => preloadFlag(settlement.slug));
+  frame.addEventListener("focus", () => preloadFlag(settlement.slug));
+  frame.addEventListener("click", () => {
+    void openFlagModal(settlement);
+  });
+  void setFlagImage(image, frame, settlement);
   return makeCell("flag-cell", [frame]);
 }
 
@@ -75,7 +97,7 @@ function makeFormatCell(settlement) {
   const extension = document.createElement("strong");
   extension.textContent = "SVG";
   const details = document.createElement("span");
-  details.textContent = `assets/${settlement.slug}/index.svg`;
+  details.textContent = `@russian-flags/arkhangelsk-oblast/flags/${settlement.slug}`;
   details.title = details.textContent;
   return makeCell("format", [extension, details]);
 }
@@ -93,17 +115,24 @@ function makeRow(settlement) {
 }
 
 function updateSummary() {
-  summary.textContent = `${settlements.length} городов, ${settlements.length} SVG из assets`;
+  summary.textContent = `${settlements.length} городов, ${settlements.length} SVG из npm-пакета`;
 }
 
-function openFlagModal(settlement) {
+async function openFlagModal(settlement) {
   flagModalTitle.textContent = settlement.nameRu;
-  flagModalImage.src = assetUrl(settlement);
+  flagModalImage.removeAttribute("src");
   flagModalImage.alt = `Флаг ${settlement.nameRu}`;
   if (typeof flagModal.showModal === "function") {
     flagModal.showModal();
   } else {
     flagModal.setAttribute("open", "");
+  }
+
+  try {
+    flagModalImage.src = await flagUrl(settlement);
+  } catch (error) {
+    console.error(error);
+    flagModalImage.alt = `Не удалось загрузить флаг ${settlement.nameRu}`;
   }
 }
 
